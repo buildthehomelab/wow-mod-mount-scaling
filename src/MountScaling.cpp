@@ -4,6 +4,7 @@
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
+#include "SpellInfo.h"
 
 // Riding spell IDs
 enum RidingSpells
@@ -13,6 +14,10 @@ enum RidingSpells
     SPELL_EXPERT_RIDING     = 34090,
     SPELL_ARTISAN_RIDING    = 34091
 };
+
+// Flying mounts this fast (Ashes of Al'ar, the arena drakes, the 310% versions of Invincible
+// and the Celestial Steed...) keep their own speed: the scaling can raise it, never lower it.
+static constexpr int32 FLYER_310_SPEED = 310;
 
 // Config values
 static bool   sEnabled              = true;
@@ -69,6 +74,21 @@ static int32 CalculateFlyingSpeed(Player* player)
     return 0;
 }
 
+// The flying speed for one mount aura effect: the level-scaled speed, but never below the
+// mount's own speed if it's a 310% flyer. 0 means leave it alone.
+static int32 CalculateFlyingSpeed(Player* player, AuraEffect const* effect)
+{
+    int32 speed = CalculateFlyingSpeed(player);
+    if (!speed)
+        return 0;
+
+    int32 const mountSpeed = effect->GetSpellInfo()->Effects[effect->GetEffIndex()].CalcValue();
+    if (mountSpeed >= FLYER_310_SPEED)
+        speed = std::max(speed, mountSpeed);
+
+    return speed;
+}
+
 class MountScalingWorldScript : public WorldScript
 {
 public:
@@ -122,7 +142,7 @@ public:
             }
             else if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
             {
-                int32 newAmount = CalculateFlyingSpeed(player);
+                int32 newAmount = CalculateFlyingSpeed(player, effect);
                 if (newAmount > 0)
                     effect->ChangeAmount(newAmount);
             }
@@ -151,7 +171,7 @@ public:
         // Update flying mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
         {
-            int32 newAmount = CalculateFlyingSpeed(player);
+            int32 newAmount = CalculateFlyingSpeed(player, effect);
             if (newAmount > 0)
                 effect->ChangeAmount(newAmount);
         }

@@ -1,5 +1,8 @@
 # mod-mount-scaling
 
+Fork of [AldebaraanMKII/mod-mount-scaling](https://github.com/AldebaraanMKII/mod-mount-scaling):
+310% flying mounts keep 310% (see below).
+
 An [AzerothCore](https://www.azerothcore.org) module that replaces WoW's binary mount speed system with smooth, level-based speed progression. Instead of jumping from 0% to 60% to 100% at fixed level thresholds, mount speed scales gradually as your character levels up.
 
 ## How It Works
@@ -64,9 +67,21 @@ In vanilla WotLK, mount speeds are fixed values tied to riding skill tier. This 
 | 75 | 240% | 340% |
 | 80 | 280% (cap) | 380% |
 
+### 310% Flying Mounts
+
+Mounts that fly at 310% on their own (Ashes of Al'ar, the arena and Glory drakes, and the 310%
+versions of scaling mounts like Invincible and the Celestial Steed) keep 310% at every level. The
+scaling only ever raises their speed, never lowers it. Normal Artisan mounts still follow the
+Artisan curve above.
+
 ## Installation
 
-This module follows the standard AzerothCore module structure. Place it in the `modules/` directory:
+This module follows the standard AzerothCore module structure. Clone it into the `modules/`
+directory as `mod-mount-scaling` (AzerothCore derives the loader name from the folder name):
+
+```bash
+git clone https://github.com/buildthehomelab/wow-mod-mount-scaling.git modules/mod-mount-scaling
+```
 
 ```
 modules/mod-mount-scaling/
