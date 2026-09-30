@@ -64,6 +64,13 @@ In vanilla WotLK, mount speeds are fixed values tied to riding skill tier. This 
 | 75 | 240% | 340% |
 | 80 | 280% (cap) | 380% |
 
+### 310% Flying Mounts
+
+Mounts that fly at 310% on their own (Ashes of Al'ar, the arena and Glory drakes, and the 310%
+versions of scaling mounts like Invincible and the Celestial Steed) keep 310% at every level. The
+scaling only ever raises their speed, never lowers it. Normal Artisan mounts still follow the
+Artisan curve above.
+
 ## Installation
 
 This module follows the standard AzerothCore module structure. Place it in the `modules/` directory:
