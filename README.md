@@ -101,12 +101,10 @@ AzerothCore's build system automatically discovers modules in the `modules/` dir
 
 ### Build
 
-```bash
-# Local (Docker)
-docker compose up -d --build
+Re-run CMake and rebuild your server, then restart it. With the AzerothCore Docker setup:
 
-# On a remote server
-cd /opt/wow-server && git pull && docker compose up -d --build
+```bash
+docker compose up -d --build
 ```
 
 ### SQL
