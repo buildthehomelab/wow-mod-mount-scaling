@@ -94,7 +94,8 @@ modules/mod-mount-scaling/
 └── data/
     └── sql/
         └── db_world/
-            └── mount_scaling_trainer.sql
+            └── base/
+                └── mount_scaling_trainer.sql
 ```
 
 AzerothCore's build system automatically discovers modules in the `modules/` directory. No `CMakeLists.txt` is needed.
@@ -109,7 +110,7 @@ docker compose up -d --build
 
 ### SQL
 
-The SQL in `data/sql/db_world/` must be applied to the `acore_world` database. It makes two changes:
+The SQL in `data/sql/db_world/base/` must be applied to the `acore_world` database. It makes two changes:
 
 1. Sets `ReqLevel = 1` for Apprentice Riding in the `trainer_spell` table, allowing it to be purchased at any level.
 2. Sets `RequiredLevel = 1` for all ground mount items that previously required level 20 or below, so they can be equipped immediately.
