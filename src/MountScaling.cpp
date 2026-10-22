@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
@@ -34,19 +35,28 @@ static float  sFlyingArtisanPerLevel = 8.0f;
 static float  sFlyingArtisanMin     = 200.0f;
 static float  sFlyingArtisanMax     = 280.0f;
 
+static bool HasFlyingRiding(Player* player)
+{
+    return player->HasSpell(SPELL_EXPERT_RIDING) || player->HasSpell(SPELL_ARTISAN_RIDING);
+}
+
 static int32 CalculateGroundSpeed(Player* player)
 {
-    if (!player->HasSpell(SPELL_APPRENTICE_RIDING))
-        return 0;
-
     uint8 level = player->GetLevel();
 
-    if (player->HasSpell(SPELL_JOURNEYMAN_RIDING))
+    // Expert and Artisan count as Journeyman on the ground (a GM can .learn them on their own).
+    if (player->HasSpell(SPELL_JOURNEYMAN_RIDING) || HasFlyingRiding(player))
     {
         float speed = sGroundJourneymanMin + (level - 40) * sGroundJourneymanPerLevel;
         speed = std::clamp(speed, sGroundJourneymanMin, sGroundJourneymanMax);
         return static_cast<int32>(speed);
     }
+
+    // A character can know a mount without the riding skill for it (account-wide or learnable
+    // mounts, GM commands). Without Apprentice Riding they ride at the Apprentice floor, so the
+    // mount's own 60% or 100% never beats what training would give them.
+    if (!player->HasSpell(SPELL_APPRENTICE_RIDING))
+        return static_cast<int32>(sGroundMinSpeed);
 
     float speed = std::max(sGroundMinSpeed, level * sGroundSpeedPerLevel);
     speed = std::min(speed, sGroundMaxSpeed);
@@ -75,7 +85,9 @@ static int32 CalculateFlyingSpeed(Player* player)
 }
 
 // The flying speed for one mount aura effect: the level-scaled speed, but never below the
-// mount's own speed if it's a 310% flyer. 0 means leave it alone.
+// mount's own speed if it's a 310% flyer. 0 (no Expert Riding) means leave it alone. Players
+// can't cast their own flying mounts without Expert Riding (MountScalingSpellScript), so this
+// is left for flights that come from somewhere else, such as triggered casts.
 static int32 CalculateFlyingSpeed(Player* player, AuraEffect const* effect)
 {
     int32 speed = CalculateFlyingSpeed(player);
@@ -126,6 +138,8 @@ public:
         if (!player)
             return;
 
+        bool const isMount = aura->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED);
+
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
         {
             AuraEffect* effect = aura->GetEffect(i);
@@ -134,13 +148,14 @@ public:
 
             AuraType auraType = effect->GetAuraType();
 
-            if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED)
-            {
-                int32 newAmount = CalculateGroundSpeed(player);
-                if (newAmount > 0)
-                    effect->ChangeAmount(newAmount);
-            }
-            else if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
+            // Ground: mount spells only. Event and quest speed buffs with this effect (Brewfest ram
+            // racing) keep their own amounts.
+            if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED && isMount)
+                effect->ChangeAmount(CalculateGroundSpeed(player));
+            // Flight: also a separate flight aura added to a mount the player is already on (some
+            // custom mounts fly that way). This runs after all of the aura's effects are applied,
+            // so a mount's own MOUNTED effect already counts.
+            else if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED && (isMount || player->IsMounted()))
             {
                 int32 newAmount = CalculateFlyingSpeed(player, effect);
                 if (newAmount > 0)
@@ -162,11 +177,8 @@ public:
 
         // Update ground mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED))
-        {
-            int32 newAmount = CalculateGroundSpeed(player);
-            if (newAmount > 0)
-                effect->ChangeAmount(newAmount);
-        }
+            if (effect->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED))
+                effect->ChangeAmount(CalculateGroundSpeed(player));
 
         // Update flying mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
@@ -178,9 +190,42 @@ public:
     }
 };
 
+// Flying mounts need Expert Riding. The core never checks riding skill when a mount is cast, and a
+// flying mount aura lets the player fly at any speed amount, so a lower speed alone can't stop a
+// character who knows a flying mount without the skill (account-wide or learnable mounts).
+class MountScalingSpellScript : public AllSpellScript
+{
+public:
+    MountScalingSpellScript() : AllSpellScript("MountScalingSpellScript", {ALLSPELLHOOK_ON_SPELL_CHECK_CAST}) { }
+
+    void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
+    {
+        if (!sEnabled || res != SPELL_CAST_OK || spell->IsTriggered())
+            return;
+
+        // Only the player's own mounts: quest and vehicle flights use other spells. A flyer either
+        // has the flight effect itself or, for scripted flyers that add it later (X-53 Touring
+        // Rocket, Winged Steed of the Ebon Blade), is flagged Outland/Northrend only. Dual-mode mounts
+        // (Invincible, Celestial Steed) have neither and pick a ground speed by riding skill. This
+        // runs for every spell, so the cheap spell checks go first.
+        SpellInfo const* spellInfo = spell->GetSpellInfo();
+        if (!spellInfo->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
+            && !spellInfo->HasAttribute(SPELL_ATTR4_ONLY_FLYING_AREAS))
+            return;
+
+        if (!spellInfo->HasAura(SPELL_AURA_MOUNTED) || !spellInfo->IsAbilityOfSkillType(SKILL_MOUNTS))
+            return;
+
+        Player* player = spell->GetCaster()->ToPlayer();
+        if (player && !HasFlyingRiding(player))
+            res = SPELL_FAILED_EXPERT_RIDING_REQUIREMENT;
+    }
+};
+
 void AddMountScalingScripts()
 {
     new MountScalingWorldScript();
     new MountScalingUnitScript();
     new MountScalingPlayerScript();
+    new MountScalingSpellScript();
 }

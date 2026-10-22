@@ -74,6 +74,29 @@ versions of scaling mounts like Invincible and the Celestial Steed) keep 310% at
 scaling only ever raises their speed, never lowers it. Normal Artisan mounts still follow the
 Artisan curve above.
 
+### Mounts Without the Riding Skill
+
+A character can know a mount without the riding skill for it: account-wide or learnable mount
+modules, or GM commands. The core doesn't check riding skill when a mount is cast, so:
+
+- **Ground mounts without Apprentice Riding** ride at `MountScaling.Ground.MinSpeed` (20%) at every
+  level. Training Apprentice Riding is never slower.
+- **Flying mounts without Expert Riding** can't be cast. The player gets the client's "requires Expert
+  Riding" error. A lower speed can't solve this one, because a flying mount aura lets the player fly
+  at any speed amount. A flying mount is one with the flight speed effect or the "Outland/Northrend
+  only" flag, which catches scripted flyers such as the X-53 Touring Rocket and the Winged Steed
+  of the Ebon Blade. Only spells on the Mounts skill line are refused, so quest and vehicle
+  flights still work.
+
+Mounts that pick their speed from the riding skill (Invincible, Big Blizzard Bear, the Headless
+Horseman's mount, the Celestial Steed, the Magic Broom, the Big Love Rocket) are an exception: with
+no riding at all the core gives them no speed aura, so they move at run speed.
+
+Ground speed is only rescaled on spells that put the player on a mount (`SPELL_AURA_MOUNTED`), so
+event and quest speed buffs (Brewfest ram racing) keep their own amounts. Flight speed is also
+rescaled on a separate flight aura added to a mount the player is already on, which is how some
+custom flying mounts work. Expert and Artisan Riding count as Journeyman on the ground.
+
 ## Installation
 
 This module follows the standard AzerothCore module structure. Clone it into the `modules/`
@@ -148,13 +171,18 @@ The aura's "amount" value equals the speed percentage (e.g., 60 for a 60% speed 
 
 ### How This Module Overrides Speed
 
-The module uses three AzerothCore script hooks:
+The module uses four AzerothCore script hooks:
 
 1. **`UnitScript::OnAuraApply`** — When a mount speed aura is applied to a player, the module checks their riding skill and level, calculates the appropriate speed, and calls `AuraEffect::ChangeAmount()` to override the aura's amount. This internally triggers `UpdateSpeed()` so the change takes effect immediately.
 
 2. **`PlayerScript::OnPlayerLevelChanged`** — When a mounted player levels up, the module finds their active mount speed auras via `GetAuraEffectsByType()` and updates the amounts with the new level-based calculation.
 
-3. **`WorldScript::OnAfterConfigLoad`** — Loads configuration values from `mount_scaling.conf` into memory on server startup and when the config is reloaded.
+3. **`AllSpellScript::OnSpellCheckCast`**: refuses a flying mount from the Mounts skill line when
+   the player has neither Expert nor Artisan Riding (`SPELL_FAILED_EXPERT_RIDING_REQUIREMENT`).
+   Triggered casts are left alone. The hook runs before the core's location checks, so without
+   Expert Riding a flyer cast anywhere (also in Azeroth, also by a GM) gets this error first.
+
+4. **`WorldScript::OnAfterConfigLoad`** — Loads configuration values from `mount_scaling.conf` into memory on server startup and when the config is reloaded.
 
 ### Riding Skill Detection
 
@@ -191,6 +219,10 @@ Use these GM commands in-game to verify the module:
 .learn 33391          -- Journeyman
 .learn 34090          -- Expert
 .learn 34091          -- Artisan
+
+-- Without riding skill (on a character that never trained it)
+.learn 23228          -- Swift White Steed: rides at 20%
+.learn 32242          -- Swift Blue Gryphon: in Outland, refused until Expert Riding
 ```
 
 ## Compatibility
