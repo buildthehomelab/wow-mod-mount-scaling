@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Player.h"
 #include "ScriptMgr.h"
+#include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
@@ -34,10 +35,18 @@ static float  sFlyingArtisanPerLevel = 8.0f;
 static float  sFlyingArtisanMin     = 200.0f;
 static float  sFlyingArtisanMax     = 280.0f;
 
+static bool HasFlyingRiding(Player* player)
+{
+    return player->HasSpell(SPELL_EXPERT_RIDING) || player->HasSpell(SPELL_ARTISAN_RIDING);
+}
+
 static int32 CalculateGroundSpeed(Player* player)
 {
+    // A character can know a mount without the riding skill for it (account-wide or learnable
+    // mounts, GM commands). Without Apprentice Riding they ride at the Apprentice floor, so the
+    // mount's own 60% or 100% never beats what training would give them.
     if (!player->HasSpell(SPELL_APPRENTICE_RIDING))
-        return 0;
+        return static_cast<int32>(sGroundMinSpeed);
 
     uint8 level = player->GetLevel();
 
@@ -75,7 +84,9 @@ static int32 CalculateFlyingSpeed(Player* player)
 }
 
 // The flying speed for one mount aura effect: the level-scaled speed, but never below the
-// mount's own speed if it's a 310% flyer. 0 means leave it alone.
+// mount's own speed if it's a 310% flyer. 0 means leave it alone: that's only for flying auras
+// the player didn't cast from their mount list (quest and vehicle flights), because
+// MountScalingSpellScript refuses their own flying mounts without Expert Riding.
 static int32 CalculateFlyingSpeed(Player* player, AuraEffect const* effect)
 {
     int32 speed = CalculateFlyingSpeed(player);
@@ -135,11 +146,7 @@ public:
             AuraType auraType = effect->GetAuraType();
 
             if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED)
-            {
-                int32 newAmount = CalculateGroundSpeed(player);
-                if (newAmount > 0)
-                    effect->ChangeAmount(newAmount);
-            }
+                effect->ChangeAmount(CalculateGroundSpeed(player));
             else if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
             {
                 int32 newAmount = CalculateFlyingSpeed(player, effect);
@@ -162,11 +169,7 @@ public:
 
         // Update ground mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED))
-        {
-            int32 newAmount = CalculateGroundSpeed(player);
-            if (newAmount > 0)
-                effect->ChangeAmount(newAmount);
-        }
+            effect->ChangeAmount(CalculateGroundSpeed(player));
 
         // Update flying mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
@@ -178,9 +181,35 @@ public:
     }
 };
 
+// Flying mounts need Expert Riding. The core never checks riding skill when a mount is cast, and a
+// flying mount aura lets the player fly at any speed amount, so a lower speed alone can't stop a
+// character who knows a flying mount without the skill (account-wide or learnable mounts).
+class MountScalingSpellScript : public AllSpellScript
+{
+public:
+    MountScalingSpellScript() : AllSpellScript("MountScalingSpellScript", {ALLSPELLHOOK_ON_SPELL_CHECK_CAST}) { }
+
+    void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
+    {
+        if (!sEnabled || res != SPELL_CAST_OK || spell->IsTriggered())
+            return;
+
+        Player* player = spell->GetCaster()->ToPlayer();
+        if (!player || HasFlyingRiding(player))
+            return;
+
+        // Only the player's own mounts: quest and vehicle flights use other spells.
+        SpellInfo const* spellInfo = spell->GetSpellInfo();
+        if (spellInfo->HasAura(SPELL_AURA_MOUNTED) && spellInfo->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
+            && spellInfo->IsAbilityOfSkillType(SKILL_MOUNTS))
+            res = SPELL_FAILED_EXPERT_RIDING_REQUIREMENT;
+    }
+};
+
 void AddMountScalingScripts()
 {
     new MountScalingWorldScript();
     new MountScalingUnitScript();
     new MountScalingPlayerScript();
+    new MountScalingSpellScript();
 }

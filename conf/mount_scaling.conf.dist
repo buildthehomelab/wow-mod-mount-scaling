@@ -18,7 +18,8 @@ MountScaling.Enable = 1
 # Speed increase per level (default: 2.5 → level 40 = 100%)
 MountScaling.Ground.SpeedPerLevel = 2.5
 
-# Minimum ground mount speed at level 1 (default: 20)
+# Minimum ground mount speed at level 1 (default: 20). A character who knows a mount without
+# Apprentice Riding (account-wide or learnable mounts) rides at this speed at every level.
 MountScaling.Ground.MinSpeed = 20
 
 # Maximum ground mount speed cap (default: 100)
