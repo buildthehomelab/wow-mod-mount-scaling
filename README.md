@@ -86,6 +86,11 @@ modules, or GM commands. The core doesn't check riding skill when a mount is cas
   at any speed amount. Only spells on the Mounts skill line are refused, so quest and vehicle
   flights still work.
 
+Mounts that pick their speed from the riding skill (Invincible, Big Blizzard Bear, the Headless
+Horseman's mount, the Celestial Steed) are an exception: with no riding at all the core gives them
+no speed aura, so they move at run speed. Only spells that put the player on a mount
+(`SPELL_AURA_MOUNTED`) are rescaled. Event and quest speed buffs keep their own amounts.
+
 ## Installation
 
 This module follows the standard AzerothCore module structure. Clone it into the `modules/`

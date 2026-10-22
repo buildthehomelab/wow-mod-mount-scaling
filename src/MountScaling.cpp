@@ -42,12 +42,6 @@ static bool HasFlyingRiding(Player* player)
 
 static int32 CalculateGroundSpeed(Player* player)
 {
-    // A character can know a mount without the riding skill for it (account-wide or learnable
-    // mounts, GM commands). Without Apprentice Riding they ride at the Apprentice floor, so the
-    // mount's own 60% or 100% never beats what training would give them.
-    if (!player->HasSpell(SPELL_APPRENTICE_RIDING))
-        return static_cast<int32>(sGroundMinSpeed);
-
     uint8 level = player->GetLevel();
 
     if (player->HasSpell(SPELL_JOURNEYMAN_RIDING))
@@ -56,6 +50,12 @@ static int32 CalculateGroundSpeed(Player* player)
         speed = std::clamp(speed, sGroundJourneymanMin, sGroundJourneymanMax);
         return static_cast<int32>(speed);
     }
+
+    // A character can know a mount without the riding skill for it (account-wide or learnable
+    // mounts, GM commands). Without Apprentice Riding they ride at the Apprentice floor, so the
+    // mount's own 60% or 100% never beats what training would give them.
+    if (!player->HasSpell(SPELL_APPRENTICE_RIDING))
+        return static_cast<int32>(sGroundMinSpeed);
 
     float speed = std::max(sGroundMinSpeed, level * sGroundSpeedPerLevel);
     speed = std::min(speed, sGroundMaxSpeed);
@@ -84,9 +84,9 @@ static int32 CalculateFlyingSpeed(Player* player)
 }
 
 // The flying speed for one mount aura effect: the level-scaled speed, but never below the
-// mount's own speed if it's a 310% flyer. 0 means leave it alone: that's only for flying auras
-// the player didn't cast from their mount list (quest and vehicle flights), because
-// MountScalingSpellScript refuses their own flying mounts without Expert Riding.
+// mount's own speed if it's a 310% flyer. 0 (no Expert Riding) means leave it alone. Players
+// can't cast their own flying mounts without Expert Riding (MountScalingSpellScript), so this
+// is left for flights that come from somewhere else, such as triggered casts.
 static int32 CalculateFlyingSpeed(Player* player, AuraEffect const* effect)
 {
     int32 speed = CalculateFlyingSpeed(player);
@@ -137,6 +137,11 @@ public:
         if (!player)
             return;
 
+        // Mounts only: other spells with a mounted speed effect (event and quest speed buffs) keep
+        // their own amounts.
+        if (!aura->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED))
+            return;
+
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
         {
             AuraEffect* effect = aura->GetEffect(i);
@@ -169,11 +174,15 @@ public:
 
         // Update ground mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED))
-            effect->ChangeAmount(CalculateGroundSpeed(player));
+            if (effect->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED))
+                effect->ChangeAmount(CalculateGroundSpeed(player));
 
         // Update flying mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
         {
+            if (!effect->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED))
+                continue;
+
             int32 newAmount = CalculateFlyingSpeed(player, effect);
             if (newAmount > 0)
                 effect->ChangeAmount(newAmount);
@@ -194,14 +203,15 @@ public:
         if (!sEnabled || res != SPELL_CAST_OK || spell->IsTriggered())
             return;
 
-        Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || HasFlyingRiding(player))
+        // Only the player's own mounts: quest and vehicle flights use other spells. This runs for
+        // every spell, so the cheap spell checks go first.
+        SpellInfo const* spellInfo = spell->GetSpellInfo();
+        if (!spellInfo->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED) || !spellInfo->HasAura(SPELL_AURA_MOUNTED)
+            || !spellInfo->IsAbilityOfSkillType(SKILL_MOUNTS))
             return;
 
-        // Only the player's own mounts: quest and vehicle flights use other spells.
-        SpellInfo const* spellInfo = spell->GetSpellInfo();
-        if (spellInfo->HasAura(SPELL_AURA_MOUNTED) && spellInfo->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
-            && spellInfo->IsAbilityOfSkillType(SKILL_MOUNTS))
+        Player* player = spell->GetCaster()->ToPlayer();
+        if (player && !HasFlyingRiding(player))
             res = SPELL_FAILED_EXPERT_RIDING_REQUIREMENT;
     }
 };
