@@ -44,7 +44,8 @@ static int32 CalculateGroundSpeed(Player* player)
 {
     uint8 level = player->GetLevel();
 
-    if (player->HasSpell(SPELL_JOURNEYMAN_RIDING))
+    // Expert and Artisan count as Journeyman on the ground (a GM can .learn them on their own).
+    if (player->HasSpell(SPELL_JOURNEYMAN_RIDING) || HasFlyingRiding(player))
     {
         float speed = sGroundJourneymanMin + (level - 40) * sGroundJourneymanPerLevel;
         speed = std::clamp(speed, sGroundJourneymanMin, sGroundJourneymanMax);
@@ -137,10 +138,7 @@ public:
         if (!player)
             return;
 
-        // Mounts only: other spells with a mounted speed effect (event and quest speed buffs) keep
-        // their own amounts.
-        if (!aura->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED))
-            return;
+        bool const isMount = aura->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED);
 
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
         {
@@ -150,9 +148,14 @@ public:
 
             AuraType auraType = effect->GetAuraType();
 
-            if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED)
+            // Ground: mount spells only. Event and quest speed buffs with this effect (Brewfest ram
+            // racing) keep their own amounts.
+            if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED && isMount)
                 effect->ChangeAmount(CalculateGroundSpeed(player));
-            else if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
+            // Flight: also a separate flight aura added to a mount the player is already on (some
+            // custom mounts fly that way). This runs after all of the aura's effects are applied,
+            // so a mount's own MOUNTED effect already counts.
+            else if (auraType == SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED && (isMount || player->IsMounted()))
             {
                 int32 newAmount = CalculateFlyingSpeed(player, effect);
                 if (newAmount > 0)
@@ -180,9 +183,6 @@ public:
         // Update flying mount speed auras
         for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED))
         {
-            if (!effect->GetSpellInfo()->HasAura(SPELL_AURA_MOUNTED))
-                continue;
-
             int32 newAmount = CalculateFlyingSpeed(player, effect);
             if (newAmount > 0)
                 effect->ChangeAmount(newAmount);
@@ -203,11 +203,17 @@ public:
         if (!sEnabled || res != SPELL_CAST_OK || spell->IsTriggered())
             return;
 
-        // Only the player's own mounts: quest and vehicle flights use other spells. This runs for
-        // every spell, so the cheap spell checks go first.
+        // Only the player's own mounts: quest and vehicle flights use other spells. A flyer either
+        // has the flight effect itself or, for scripted flyers that add it later (X-53 Touring
+        // Rocket, Winged Steed of the Ebon Blade), is flagged Outland/Northrend only. Dual-mode mounts
+        // (Invincible, Celestial Steed) have neither and pick a ground speed by riding skill. This
+        // runs for every spell, so the cheap spell checks go first.
         SpellInfo const* spellInfo = spell->GetSpellInfo();
-        if (!spellInfo->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED) || !spellInfo->HasAura(SPELL_AURA_MOUNTED)
-            || !spellInfo->IsAbilityOfSkillType(SKILL_MOUNTS))
+        if (!spellInfo->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED)
+            && !spellInfo->HasAttribute(SPELL_ATTR4_ONLY_FLYING_AREAS))
+            return;
+
+        if (!spellInfo->HasAura(SPELL_AURA_MOUNTED) || !spellInfo->IsAbilityOfSkillType(SKILL_MOUNTS))
             return;
 
         Player* player = spell->GetCaster()->ToPlayer();

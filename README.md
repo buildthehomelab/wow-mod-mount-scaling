@@ -83,13 +83,19 @@ modules, or GM commands. The core doesn't check riding skill when a mount is cas
   level. Training Apprentice Riding is never slower.
 - **Flying mounts without Expert Riding** can't be cast. The player gets the client's "requires Expert
   Riding" error. A lower speed can't solve this one, because a flying mount aura lets the player fly
-  at any speed amount. Only spells on the Mounts skill line are refused, so quest and vehicle
+  at any speed amount. A flying mount is one with the flight speed effect or the "Outland/Northrend
+  only" flag, which catches scripted flyers such as the X-53 Touring Rocket and the Winged Steed
+  of the Ebon Blade. Only spells on the Mounts skill line are refused, so quest and vehicle
   flights still work.
 
 Mounts that pick their speed from the riding skill (Invincible, Big Blizzard Bear, the Headless
-Horseman's mount, the Celestial Steed) are an exception: with no riding at all the core gives them
-no speed aura, so they move at run speed. Only spells that put the player on a mount
-(`SPELL_AURA_MOUNTED`) are rescaled. Event and quest speed buffs keep their own amounts.
+Horseman's mount, the Celestial Steed, the Magic Broom, the Big Love Rocket) are an exception: with
+no riding at all the core gives them no speed aura, so they move at run speed.
+
+Ground speed is only rescaled on spells that put the player on a mount (`SPELL_AURA_MOUNTED`), so
+event and quest speed buffs (Brewfest ram racing) keep their own amounts. Flight speed is also
+rescaled on a separate flight aura added to a mount the player is already on, which is how some
+custom flying mounts work. Expert and Artisan Riding count as Journeyman on the ground.
 
 ## Installation
 
@@ -173,7 +179,8 @@ The module uses four AzerothCore script hooks:
 
 3. **`AllSpellScript::OnSpellCheckCast`**: refuses a flying mount from the Mounts skill line when
    the player has neither Expert nor Artisan Riding (`SPELL_FAILED_EXPERT_RIDING_REQUIREMENT`).
-   Triggered casts are left alone.
+   Triggered casts are left alone. The hook runs before the core's location checks, so without
+   Expert Riding a flyer cast anywhere (also in Azeroth, also by a GM) gets this error first.
 
 4. **`WorldScript::OnAfterConfigLoad`** — Loads configuration values from `mount_scaling.conf` into memory on server startup and when the config is reloaded.
 
