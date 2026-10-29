@@ -197,6 +197,37 @@ The module checks which riding tier a player has by testing for the riding skill
 
 Higher tiers always take priority. For example, a level 45 player with both Apprentice and Journeyman Riding will use the Journeyman formula.
 
+## Automated unit regressions
+
+Run `python3 tests/run.py` with Python 3 and a C++20 compiler (`CXX=g++` or
+`CXX=clang++`). The suite compiles the actual `src/MountScaling.cpp` and every other
+production `.cpp`, including the loader, against small external-core test doubles.
+No server, database, client or SQL import is started.
+
+The tests cover training-tier precedence and boundaries, configured rates/floors/
+caps and reloads, truncation, native 310%+ flyers, event-buff exclusions, separate
+flight auras, mounted/unmounted level updates, NPCs, cast failures, triggered
+casts, scripted flyers and mount-skill eligibility. Hook subscriptions, empty-list enable-all semantics and unit-script registration
+are checked against the core contract;
+sanitizer findings terminate the test process.
+
+`python3 tests/mutations.py` requires 28 representative faults to compile and fail
+behavioral assertions. Twelve initial mutation ideas came from the local coding
+worker and were reviewed/refined before acceptance. Compiler failures do not count
+as caught regressions. Mutation anchors must be updated deliberately when their
+corresponding production statements change.
+
+PR CI runs GCC/Clang sanitizers and mutation sentinels, then gcovr 8.4 gates 100%
+executable lines, functions and business branches for production code. It records
+raw branch coverage too: with GCC 14, it is 89.8% after ordinary throw/unreachable
+exclusions. The only additional excluded branch lines are the four exact
+`new MountScaling*Script();` registration expressions, whose generated allocation/
+cleanup edges are not riding or spell decisions. Those lines remain in line and
+function coverage, and loader tests verify all four registrations. Business branch
+coverage is 98/98. This is not a claim of core, database, SQL or gameplay coverage.
+Invalid configuration ranges (e.g. minimum above maximum) and external core
+contracts require separate validation; test doubles do not establish them.
+
 ## Testing
 
 Use these GM commands in-game to verify the module:
